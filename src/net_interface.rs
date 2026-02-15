@@ -147,13 +147,46 @@ impl<'a> TxToken for VirtioTxToken<'a> {
         let result = f(&mut buffer.as_mut_slice()[VIRTIO_HEADER_LEN..VIRTIO_HEADER_LEN + len]);
         let data = buffer.as_mut_slice();
         let eth_type = ((data[VIRTIO_HEADER_LEN + 12] as u16) << 8) | (data[VIRTIO_HEADER_LEN + 13] as u16);
-        serial_println!("[NET TX] {} bytes, EthType: 0x{:04x}", len, eth_type);
+        // serial_println!("[NET TX] {} bytes, EthType: 0x{:04x}", len, eth_type);
 
-        // Checksum patch for IPv4 - DISABLED (smoltcp handles it)
-        /*
+        // Checksum patch for IPv4
         let pkt_start = VIRTIO_HEADER_LEN;
-        if buffer.len > pkt_start + 34 { ... }
-        */
+        if buffer.len > pkt_start + 34 { // Min size for Eth+IP
+            let data = buffer.as_mut_slice();
+            // Check EtherType (IPv4 = 0x0800) at offset 12
+            if data[pkt_start + 12] == 0x08 && data[pkt_start + 13] == 0x00 {
+                // IPv4 Header starts at pkt_start + 14
+                let ip_start = pkt_start + 14;
+                let ver_ihl = data[ip_start];
+                let ihl = (ver_ihl & 0x0F) as usize * 4;
+                
+                if ihl >= 20 && data.len() >= ip_start + ihl {
+                    // Checksum field at offset 10 in IP header
+                    let csum_offset = ip_start + 10;
+                    
+                    // Reset existing checksum to 0
+                    data[csum_offset] = 0;
+                    data[csum_offset + 1] = 0;
+                    
+                    // Calculate sum
+                    let mut sum: u32 = 0;
+                    for i in 0..ihl/2 {
+                        let offset = ip_start + i * 2;
+                        let word = ((data[offset] as u32) << 8) | (data[offset + 1] as u32);
+                        sum += word;
+                    }
+                    
+                    while (sum >> 16) != 0 {
+                        sum = (sum & 0xFFFF) + (sum >> 16);
+                    }
+                    
+                    let csum = !sum as u16;
+                    
+                    data[csum_offset] = (csum >> 8) as u8;
+                    data[csum_offset + 1] = (csum & 0xFF) as u8;
+                }
+            }
+        }
 
         unsafe {
             // Transmit Header + Packet
@@ -303,10 +336,10 @@ impl Device for VirtioNetDevice {
         caps.max_transmission_unit = 1500;
         caps.max_burst_size = Some(1);
         caps.medium = Medium::Ethernet;
-        caps.checksum.ipv4 = Checksum::None;
-        caps.checksum.tcp = Checksum::None;
-        caps.checksum.udp = Checksum::None;
-        caps.checksum.icmpv4 = Checksum::None;
+        caps.checksum.ipv4 = Checksum::Both;
+        caps.checksum.tcp = Checksum::Both;
+        caps.checksum.udp = Checksum::Both;
+        caps.checksum.icmpv4 = Checksum::Both;
         caps
     }
 }
