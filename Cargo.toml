@@ -1,0 +1,106 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+description = "Next-Gen Microkernel: A capability-based, Rust-native bare-metal kernel."
+
+[dependencies]
+# Bootloader API — provides the `entry_point!` macro and `BootInfo` struct.
+# This defines the contract between the bootloader and our kernel.
+bootloader_api = "0.11"
+
+# x86_64 hardware abstractions — provides safe wrappers for CPU instructions
+# (like `hlt`, interrupt control) and hardware structures (page tables, IDT).
+x86_64 = "0.14.2"
+
+# Spinlock — a mutex that busy-waits instead of sleeping.
+# Necessary in kernel space where there is no scheduler to block a thread.
+spin = "0.9.8"
+
+# Lazy static — allows initializing global statics at runtime.
+# The `spin_no_std` feature uses spinlocks instead of std::sync::Once.
+lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
+
+# UART 16550 serial port driver — for sending text to the host terminal.
+uart_16550 = "0.3.0"
+
+# Volatile — ensures the compiler doesn't optimize away MMIO writes.
+# Used for VGA text buffer and other hardware registers.
+volatile = "0.5.1"
+
+# wasmi — lightweight WebAssembly interpreter for no_std environments.
+# This is the core of our universal execution layer — apps compiled to WASM
+# can run on any architecture (x86, ARM, RISC-V) without recompilation.
+# `default-features = false` disables std, enabling bare-metal usage.
+wasmi = { version = "0.40", default-features = false }
+zerocopy = { version = "0.8.39", default-features = false, features = ["derive"] }
+bitflags = "2.4"
+
+# ── Phase 3: Networking ──
+# Drivers for VirtIO devices (GPU, Input, Network, etc).
+# We primarily need `virtio-net` for networking.
+# 'alloc' feature is required for VirtioNet to allocate queues.
+virtio-drivers = { version = "0.10.0", default-features = false, features = ["alloc"] }
+
+# A robust, event-driven network stack for embedded systems.
+# Supports TCP, UDP, DHCP, and more in a no_std environment.
+[dependencies.smoltcp]
+version = "0.11.0"
+default-features = false
+features = [
+    "medium-ethernet", # Support Ethernet frames
+    "proto-ipv4",      # Support IPv4
+    "proto-dhcpv4",    # Support DHCP
+    "socket-dhcpv4",   # Support DHCP sockets
+    "socket-udp",      # Support UDP sockets (for our P2P discovery)
+    "socket-tcp",      # Support TCP sockets (for reliable streams)
+    "alloc",           # Support dynamic allocation (Vec in SocketSet)
+]
+
+# ── Phase 3.5: P2P Stack ──
+# Experimental no_std libp2p integration (Minimal Stack / Manual)
+[dependencies.ed25519-dalek]
+version = "2.1"
+default-features = false
+features = ["alloc", "zeroize"]
+
+# [dependencies.multiaddr]
+# version = "0.17"
+# default-features = false
+
+# [dependencies.multihash]
+# version = "0.18"
+# default-features = false
+
+[dependencies.getrandom]
+version = "0.2"
+features = ["custom"]
+
+[dependencies.futures]
+version = "0.3"
+default-features = false
+features = ["alloc", "async-await"]
+
+[dependencies.bytes]
+version = "1.0"
+default-features = false
+
+[dependencies.bs58]
+version = "0.4"
+default-features = false
+features = ["alloc"]
+
+# Pin byteorder only if needed, but removing multiaddr might drain the swamp
+# [dependencies.byteorder]
+# version = "=1.4.3"
+# default-features = false
+
+[dependencies.sha2]
+version = "0.10"
+default-features = false
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = false
+strip = false
